@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Snap 2 Resolve</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet"/>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css" />
+  <style>
+    #map { height: 300px; border-radius: 0.5rem; }
+    .step { display: none; }
+    .step.active { display: block; }
+    .btn-nav { margin-top: 1rem; }
+    .progress { height: 20px; }
+    .preview-img { max-height: 200px; display: none; }
+    .drop-area {
+      border: 2px dashed #007bff;
+      border-radius: 8px;
+      padding: 20px;
+      text-align: center;
+      background-color: #f1f8ff;
+      cursor: pointer;
+    }
+    .final-message {
+      background-color: #e6ffe6;
+      border: 2px solid #28a745;
+      padding: 20px;
+      border-radius: 10px;
+      text-align: center;
+      font-size: 1.25rem;
+      margin-top: 1rem;
+    }
+    #addressDisplay {
+      font-size: 0.9rem;
+      margin-top: 8px;
+      color: #6c757d;
+    }
+    #submittedImage {
+      max-width: 100%;
+      max-height: 250px;
+      margin-top: 1rem;
+      border-radius: 10px;
+    }
+    #voice-status.listening {
+      color: #d63384;
+      font-weight: bold;
+      animation: pulse 1s infinite;
+    }
+    @keyframes pulse {
+      0% { opacity: 1; }
+      50% { opacity: 0.4; }
+      100% { opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+<div class="container py-5">
+  <h2 class="mb-4 text-center">🛠️ Snap 2 Resolve</h2>
+
+  <div class="progress mb-4">
+    <div class="progress-bar" id="progressBar" role="progressbar" style="width: 33%;">Step 1 of 3</div>
+  </div>
+
+  <form id="reportForm">
+    <!-- Step 1 -->
+    <div class="step active" id="step1">
+      <label for="issueType" class="form-label">Select an Issue Type</label>
+      <select class="form-select mb-3" id="issueType" required>
+        <option value="">-- Choose an issue --</option>
+        <option value="Garbage not collected">Garbage not collected</option>
+        <option value="Open manhole">Open manhole</option>
+        <option value="Streetlight not working">Streetlight not working</option>
+        <option value="Water leakage">Water leakage</option>
+        <option value="Sewage overflow">Sewage overflow</option>
+        <option value="Illegal dumping">Illegal dumping</option>
+        <option value="Other">Other</option>
+      </select>
+
+      <div id="customIssueTypeContainer" style="display: none;">
+        <label for="customIssueType" class="form-label">Specify the issue</label>
+        <input type="text" id="customIssueType" class="form-control mb-3" placeholder="e.g., Damaged bench in park" />
+      </div>
+
+      <label for="description" class="form-label">Brief Description <span class="text-danger">*</span></label>
+      <textarea class="form-control mb-2" id="description" rows="3" required placeholder="Please describe the issue clearly. Try to answer: What happened? Where? When? Who is affected? Why is it a problem? How can it be resolved?"></textarea>
+
+      <!-- Speech to Text Controls -->
+      <div class="mb-3">
+        <label class="form-label">For Speech to Text:</label><br />
+        <button type="button" class="btn btn-outline-primary me-2" id="start-voice">▶️ Start Listening</button>
+        <button type="button" class="btn btn-outline-danger" id="stop-voice" disabled>⏹️ Stop</button>
+        <span id="voice-status" class="ms-3 text-muted">🎤 Not listening</span>
+      </div>
+
+      <button type="button" class="btn btn-primary btn-nav" onclick="nextStep()">Next</button>
+    </div>
+
+    <!-- Step 2 -->
+    <div class="step" id="step2">
+      <label class="form-label">Choose Location</label><br />
+      <button type="button" class="btn btn-outline-secondary mb-2" onclick="getLocation()">📍 Use My Location</button>
+      <div id="map"></div>
+      <input type="hidden" id="latitude" />
+      <input type="hidden" id="longitude" />
+      <input type="hidden" id="address" />
+      <div id="addressDisplay"></div>
+      <div class="d-flex justify-content-between btn-nav">
+        <button type="button" class="btn btn-secondary" onclick="prevStep()">Back</button>
+        <button type="button" class="btn btn-primary" onclick="nextStep()">Next</button>
+      </div>
+    </div>
+
+    <!-- STEP 3 -->
+    <div class="step" id="step3">
+      <label class="form-label">Upload Photo</label>
+      <div id="drop-area" class="drop-area">
+        <p class="text-muted mb-2">Drag & drop image here or click to browse</p>
+        <input type="file" id="image" accept="image/*" capture="environment" hidden required />
+        <img id="preview" class="preview-img rounded mt-2" />
+      </div>
+
+      <!-- 📸 Take Photo via Camera -->
+      <!-- 📸 Take Photo via Camera -->
+      <div class="mt-3">
+        <label class="form-label">Or Take Photo Instantly</label><br />
+        <button type="button" class="btn btn-outline-primary mb-2" onclick="openCamera()">📷 Open Camera</button>
+        <!-- Video Preview -->
+        <video id="camera" width="100%" autoplay style="display:none; border-radius: 10px;"></video>
+        <!-- 👇 This is the button the error is complaining about -->
+        <button type="button" id="captureBtn" class="btn btn-success mt-2" style="display:none;" onclick="capturePhoto()">✅ Capture Now</button>
+        <!-- Canvas (not visible) -->
+        <canvas id="snapshotCanvas" style="display:none;"></canvas>
+      </div>
+
+
+      <div class="d-flex justify-content-between btn-nav">
+        <button type="button" class="btn btn-secondary" onclick="prevStep()">Back</button>
+        <button type="submit" class="btn btn-success">Submit</button>
+      </div>
+
+      <div class="mt-3 fw-bold" id="status"></div>
+      <div id="finalMessage" class="final-message d-none"></div>
+      <img id="submittedImage" class="d-none" />
+    </div>
+  </form>
+</div>
+
+<!-- Scripts -->
+<script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
+<script>
+  const GEOCODE_API_KEY = '0b3b0b975cb64939a425408d3e7773c1';
+  let currentStep = 1;
+  const totalSteps = 3;
+
+  function showStep(step) {
+    document.querySelectorAll('.step').forEach((s, i) => {
+      s.classList.toggle('active', i + 1 === step);
+    });
+    const progress = Math.round((step / totalSteps) * 100);
+    document.getElementById('progressBar').style.width = `${progress}%`;
+    document.getElementById('progressBar').innerText = `Step ${step} of ${totalSteps}`;
+    currentStep = step;
+    if (step === 2) setTimeout(() => map.invalidateSize(), 300);
+  }
+
+  function nextStep() { if (currentStep < totalSteps) showStep(currentStep + 1); }
+  function prevStep() { if (currentStep > 1) showStep(currentStep - 1); }
+
+  const map = L.map('map').setView([17.385044, 78.486671], 13);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+  let marker;
+
+  map.on('click', (e) => {
+    const { lat, lng } = e.latlng;
+    setMarker(lat, lng);
+  });
+
+  function setMarker(lat, lng) {
+    if (marker) map.removeLayer(marker);
+    marker = L.marker([lat, lng]).addTo(map);
+    map.setView([lat, lng], 15);
+    document.getElementById('latitude').value = lat;
+    document.getElementById('longitude').value = lng;
+    fetchAddress(lat, lng);
+  }
+
+  function fetchAddress(lat, lng) {
+    fetch(`https://api.opencagedata.com/geocode/v1/json?q=${lat}+${lng}&key=${GEOCODE_API_KEY}`)
+      .then(res => res.json())
+      .then(data => {
+        const addr = data?.results?.[0]?.formatted || 'Unknown location';
+        document.getElementById('address').value = addr;
+        document.getElementById('addressDisplay').innerText = `📍 Detected Address: ${addr}`;
+      })
+      .catch(() => {
+        document.getElementById('address').value = '';
+        document.getElementById('addressDisplay').innerText = '📍 Address could not be determined';
+      });
+  }
+
+  function getLocation() {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(pos => {
+        setMarker(pos.coords.latitude, pos.coords.longitude);
+      }, () => alert("Failed to get location"));
+    }
+  }
+
+  const issueType = document.getElementById('issueType');
+  issueType.addEventListener('change', () => {
+    document.getElementById('customIssueTypeContainer').style.display = issueType.value === 'Other' ? 'block' : 'none';
+  });
+
+  const dropArea = document.getElementById('drop-area');
+  const fileInput = document.getElementById('image');
+  const previewImg = document.getElementById('preview');
+  const submittedImg = document.getElementById('submittedImage');
+
+  dropArea.addEventListener('click', () => fileInput.click());
+  dropArea.addEventListener('dragover', e => e.preventDefault());
+  dropArea.addEventListener('drop', e => {
+    e.preventDefault();
+    fileInput.files = e.dataTransfer.files;
+    showPreview(fileInput.files[0]);
+  });
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files.length > 0) showPreview(fileInput.files[0]);
+  });
+
+  function showPreview(file) {
+    const reader = new FileReader();
+    reader.onload = e => {
+      previewImg.src = e.target.result;
+      previewImg.style.display = 'block';
+    };
+    reader.readAsDataURL(file);
+  }
+
+  document.getElementById('reportForm').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    const baseType = document.getElementById('issueType').value;
+    const customType = document.getElementById('customIssueType')?.value;
+    const desc = document.getElementById('description').value;
+    const lat = document.getElementById('latitude').value;
+    const lng = document.getElementById('longitude').value;
+    const address = document.getElementById('address').value;
+    const imageFile = document.getElementById('image').files[0];
+    const issueFinal = baseType === 'Other' ? customType : baseType;
+    const status = document.getElementById('status');
+    const finalMessage = document.getElementById('finalMessage');
+
+    if (!imageFile || !issueFinal || !lat || !lng || !desc.trim()) {
+      status.textContent = "❌ Please complete all required fields.";
+      status.classList.add("text-danger");
+      return;
+    }
+
+    status.innerHTML = `<div class="d-flex align-items-center gap-2 text-primary">
+      <div class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></div>
+      <span>Submitting your report...</span></div>`;
+    status.classList.remove('text-success', 'text-danger');
+    document.querySelector('button[type="submit"]').disabled = true;
+
+    const formData = new FormData();
+    formData.append('file', imageFile);
+    formData.append('upload_preset', 'imageupload');
+    formData.append('cloud_name', 'dndlmtrgx');
+    const cloudRes = await fetch('https://api.cloudinary.com/v1_1/dndlmtrgx/image/upload', {
+      method: 'POST', body: formData });
+    const cloudData = await cloudRes.json();
+    if (!cloudData.secure_url) {
+      status.textContent = "❌ Image upload failed.";
+      status.classList.add("text-danger");
+      return;
+    }
+
+    const response = await fetch('/submit_issue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        issue_type: issueFinal,
+        description: desc || '',
+        latitude: lat,
+        longitude: lng,
+        address: address || '',
+        image_url: cloudData.secure_url
+      })
+    });
+
+    const result = await response.json();
+    if (response.ok) {
+      status.innerHTML = "";
+      finalMessage.classList.remove('d-none');
+      finalMessage.innerHTML = `🎉 <strong>Thank you!</strong><br>Your report has been submitted successfully. Your action is a valuable contribution to building a better society!`;
+      submittedImg.src = cloudData.secure_url;
+      submittedImg.classList.remove('d-none');
+    } else {
+      status.textContent = result.message || "❌ Something went wrong.";
+      status.classList.add("text-danger");
+    }
+    document.querySelector('button[type="submit"]').disabled = false;
+    status.scrollIntoView({ behavior: 'smooth' });
+  });
+
+
+  let cameraStream;
+
+async function openCamera() {
+  const video = document.getElementById('camera');
+  const captureBtn = document.getElementById('captureBtn');
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    alert("Camera not supported on this browser/device.");
+    return;
+  }
+
+  try {
+    cameraStream = await navigator.mediaDevices.getUserMedia({ video: true });
+    video.srcObject = cameraStream;
+    video.style.display = 'block';
+    captureBtn.style.display = 'inline-block';
+  } catch (err) {
+    alert("Unable to access camera: " + err.message);
+  }
+}
+
+function capturePhoto() {
+  const video = document.getElementById('camera');
+  const canvas = document.getElementById('snapshotCanvas');
+  const fileInput = document.getElementById('image');
+  const captureBtn = document.getElementById('captureBtn');
+
+  const context = canvas.getContext('2d');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+  canvas.toBlob(blob => {
+    const file = new File([blob], "snapshot.jpg", { type: "image/jpeg" });
+    const dataTransfer = new DataTransfer();
+    dataTransfer.items.add(file);
+    fileInput.files = dataTransfer.files;
+
+    showPreview(file);
+    video.pause();
+    video.srcObject.getTracks().forEach(t => t.stop());
+    video.style.display = 'none';
+    captureBtn.style.display = 'none';
+  }, "image/jpeg");
+}
+
+
+
+  // 🎤 Voice Recognition Script
+  const startBtn = document.getElementById('start-voice');
+  const stopBtn = document.getElementById('stop-voice');
+  const voiceStatus = document.getElementById('voice-status');
+  const descriptionField = document.getElementById('description');
+  let recognition;
+
+  if ('webkitSpeechRecognition' in window) {
+    recognition = new webkitSpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.lang = 'en-IN';
+
+    recognition.onstart = () => {
+      voiceStatus.textContent = "🎙️ Listening...";
+      voiceStatus.classList.add("listening");
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+    };
+
+    recognition.onend = () => {
+      voiceStatus.textContent = "🎤 Not listening";
+      voiceStatus.classList.remove("listening");
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+    };
+
+    recognition.onresult = (event) => {
+      const transcript = Array.from(event.results).map(r => r[0].transcript).join(' ');
+      descriptionField.value += transcript + ' ';
+    };
+
+    recognition.onerror = (event) => {
+      alert("Voice error: " + event.error);
+      recognition.stop();
+    };
+
+    startBtn.onclick = () => recognition.start();
+    stopBtn.onclick = () => recognition.stop();
+  } else {
+    startBtn.disabled = true;
+    stopBtn.disabled = true;
+    voiceStatus.textContent = "❌ Speech recognition not supported in this browser.";
+  }
+</script>
+</body>
+</html>
